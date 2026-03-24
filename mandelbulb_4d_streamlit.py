@@ -8,12 +8,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import os
+import io
 import random
 import time
 import logging
 import concurrent.futures
 from collections import deque
+from datetime import datetime, timezone
 from scipy.stats import linregress, kendalltau
+
+try:
+    import requests as _requests
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
+
+try:
+    from PIL import Image as _PILImage
+    _HAS_PIL = True
+except ImportError:
+    _HAS_PIL = False
 
 st.set_page_config(page_title="4D Mandelbulb Explorer", layout="wide", page_icon="🌌")
 
@@ -515,12 +529,201 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
     return filename
 
 
+# ====================== BTC CHAIN DATA LAYER ======================
+
+_BTC_FALLBACK_BLOCKS = [
+    {"height": 888001, "timestamp": 1742600000, "tx_count": 3821, "difficulty": 88_100_000_000_000.0, "size": 1_482_000},
+    {"height": 888002, "timestamp": 1742600600, "tx_count": 2944, "difficulty": 88_100_000_000_000.0, "size": 1_205_000},
+    {"height": 888003, "timestamp": 1742601300, "tx_count": 4102, "difficulty": 88_100_000_000_000.0, "size": 1_611_000},
+    {"height": 888004, "timestamp": 1742601950, "tx_count": 3377, "difficulty": 88_100_000_000_000.0, "size": 1_320_000},
+    {"height": 888005, "timestamp": 1742602700, "tx_count": 3955, "difficulty": 88_100_000_000_000.0, "size": 1_540_000},
+]
+_BTC_FALLBACK_PRICE = 87_432.0
+
+
+def fetch_btc_price() -> float:
+    """Return current BTC/USD price from CoinGecko free tier. Falls back on any error."""
+    if not _HAS_REQUESTS:
+        return _BTC_FALLBACK_PRICE
+    try:
+        r = _requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "bitcoin", "vs_currencies": "usd"},
+            timeout=6,
+        )
+        r.raise_for_status()
+        return float(r.json()["bitcoin"]["usd"])
+    except Exception:
+        return _BTC_FALLBACK_PRICE
+
+
+def fetch_btc_blocks(n: int = 10) -> list:
+    """
+    Fetch the latest N Bitcoin blocks from blockstream.info.
+    Returns a list of dicts with keys: height, timestamp, tx_count, difficulty, size.
+    Falls back to _BTC_FALLBACK_BLOCKS on error.
+    """
+    if not _HAS_REQUESTS:
+        return _BTC_FALLBACK_BLOCKS[:n]
+    try:
+        r = _requests.get("https://blockstream.info/api/blocks", timeout=8)
+        r.raise_for_status()
+        raw = r.json()
+        blocks = []
+        for b in raw[:n]:
+            blocks.append({
+                "height":     int(b.get("height", 0)),
+                "timestamp":  int(b.get("timestamp", 0)),
+                "tx_count":   int(b.get("tx_count", 0)),
+                "difficulty": float(b.get("difficulty", 88_100_000_000_000.0)),
+                "size":       int(b.get("size", 1_500_000)),
+            })
+        return blocks if blocks else _BTC_FALLBACK_BLOCKS[:n]
+    except Exception:
+        return _BTC_FALLBACK_BLOCKS[:n]
+
+
+def fetch_tip_block() -> dict | None:
+    """Fetch only the current chain tip block. Returns None on failure."""
+    if not _HAS_REQUESTS:
+        return None
+    try:
+        r = _requests.get("https://blockstream.info/api/blocks/tip/height", timeout=6)
+        r.raise_for_status()
+        tip_height = int(r.text.strip())
+        r2 = _requests.get(f"https://blockstream.info/api/block-height/{tip_height}", timeout=6)
+        r2.raise_for_status()
+        block_hash = r2.text.strip()
+        r3 = _requests.get(f"https://blockstream.info/api/block/{block_hash}", timeout=6)
+        r3.raise_for_status()
+        b = r3.json()
+        return {
+            "height":     int(b.get("height", 0)),
+            "timestamp":  int(b.get("timestamp", 0)),
+            "tx_count":   int(b.get("tx_count", 0)),
+            "difficulty": float(b.get("difficulty", 88_100_000_000_000.0)),
+            "size":       int(b.get("size", 1_500_000)),
+        }
+    except Exception:
+        return None
+
+
+def normalize_blocks_to_4d(blocks: list, btc_price: float) -> list:
+    """
+    Map each block's on-chain metrics to a (x, y, z, w, power) 4D coordinate + power.
+
+    Mapping:
+      x  = normalized timestamp → [-1.5, 1.5]  (time axis)
+      y  = normalized tx_count  → [-1.5, 1.5]  (economic density)
+      z  = normalized difficulty → [-1.5, 1.5]  (mining complexity)
+      w  = (height % 2000) / 1000.0 - 1.0       (self-expanding slice)
+      n  = BTC price mapped to [4.0, 12.0]       (fractal morphology)
+    """
+    if not blocks:
+        return []
+
+    ts_vals   = [b["timestamp"]  for b in blocks]
+    tx_vals   = [b["tx_count"]   for b in blocks]
+    diff_vals = [b["difficulty"] for b in blocks]
+
+    def norm(val, lo, hi, out_lo=-1.5, out_hi=1.5):
+        span = hi - lo
+        if span == 0:
+            return 0.0
+        return out_lo + (val - lo) / span * (out_hi - out_lo)
+
+    ts_lo,   ts_hi   = min(ts_vals),   max(ts_vals)
+    tx_lo,   tx_hi   = min(tx_vals),   max(tx_vals)
+    diff_lo, diff_hi = min(diff_vals), max(diff_vals)
+
+    MAX_BTC_PRICE = 200_000.0
+    power_n = float(np.clip(4.0 + (btc_price / MAX_BTC_PRICE) * 8.0, 4.0, 12.0))
+
+    result = []
+    for b in blocks:
+        x = norm(b["timestamp"],  ts_lo,   ts_hi)
+        y = norm(b["tx_count"],   tx_lo,   tx_hi)
+        z = norm(b["difficulty"], diff_lo, diff_hi)
+        w = (b["height"] % 2000) / 1000.0 - 1.0
+        dt = datetime.fromtimestamp(b["timestamp"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+        result.append({
+            "height":    b["height"],
+            "datetime":  dt,
+            "tx_count":  b["tx_count"],
+            "difficulty": b["difficulty"],
+            "size_kb":   round(b["size"] / 1024, 1),
+            "x": round(x, 4),
+            "y": round(y, 4),
+            "z": round(z, 4),
+            "w": round(w, 4),
+            "power": round(power_n, 2),
+        })
+    return result
+
+
+# ====================== BTC 4D RENDERER ======================
+
+def render_block_frame(bp: dict, res: int = 120, max_iter: int = 40) -> plt.Figure:
+    """
+    Render a single 4D Mandelbulb frame driven by block parameters.
+    bp must contain keys: x, y, z, w, power, height, datetime, tx_count
+    """
+    fig = render_raymarched_view(
+        power=bp["power"],
+        max_iter=max_iter,
+        res=res,
+        w_slice=bp["w"],
+        bound=1.5,
+    )
+    ax = fig.axes[0]
+    ax.set_title(
+        f"₿ Block #{bp['height']:,}  •  {bp['datetime']} UTC\n"
+        f"tx={bp['tx_count']:,}  |  w={bp['w']:.3f}  |  power n={bp['power']:.2f}",
+        color="white", fontsize=13, pad=20,
+    )
+    return fig
+
+
+def generate_chain_gif(frames_data: list, res: int = 50, max_iter: int = 30) -> bytes | None:
+    """
+    Render each block at low resolution and stitch into an animated GIF.
+    Returns raw GIF bytes, or None if Pillow is unavailable.
+    """
+    if not _HAS_PIL or not frames_data:
+        return None
+
+    pil_frames = []
+    for bp in frames_data:
+        fig = render_block_frame(bp, res=res, max_iter=max_iter)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", facecolor="#0a0a0a", dpi=72)
+        plt.close(fig)
+        buf.seek(0)
+        img = _PILImage.open(buf).convert("RGBA")
+        pil_frames.append(img)
+
+    if not pil_frames:
+        return None
+
+    gif_buf = io.BytesIO()
+    pil_frames[0].save(
+        gif_buf,
+        format="GIF",
+        save_all=True,
+        append_images=pil_frames[1:],
+        duration=700,
+        loop=0,
+        optimize=False,
+    )
+    return gif_buf.getvalue()
+
+
 # ====================== STREAMLIT UI ======================
 
 st.title("🌌 4D Mandelbulb Explorer")
-st.markdown("**Raymarched with Smooth μ • Real Mesh Export • Quantum Testing Framework**")
+st.markdown("**Raymarched with Smooth μ • Real Mesh Export • Quantum Testing Framework • ₿ BTC Chain Graph**")
 
-tab1, tab2 = st.tabs(["🔭 Fractal Explorer", "⚛️ Quantum Simulator"])
+tab1, tab2, tab3 = st.tabs(["🔭 Fractal Explorer", "⚛️ Quantum Simulator", "₿ BTC Chain Graph"])
 
 # ---- TAB 1: FRACTAL EXPLORER ----
 with tab1:
@@ -650,4 +853,181 @@ with tab2:
                     "- Entanglement entropy tracking (Kendall τ)\n"
                     "- Anomaly correlation detection")
 
-st.caption("Pure Python 4D Mandelbulb | Smooth μ coloring | QuantumTestingFramework | Real mesh export")
+# ---- TAB 3: BTC CHAIN GRAPH ----
+with tab3:
+    import pandas as pd
+
+    st.subheader("₿ BTC 4D Self-Expanding Chain Graph")
+    st.markdown(
+        "Each Bitcoin block becomes a unique 4D Mandelbulb frame. "
+        "On-chain metrics drive every dimension — the fractal grows as the chain grows."
+    )
+
+    # ── session-state init ──────────────────────────────────────────
+    if "btc_blocks_raw"  not in st.session_state: st.session_state.btc_blocks_raw  = []
+    if "btc_frames"      not in st.session_state: st.session_state.btc_frames      = []
+    if "btc_price"       not in st.session_state: st.session_state.btc_price       = None
+    if "btc_data_source" not in st.session_state: st.session_state.btc_data_source = "none"
+
+    # ── sidebar-style controls across top ──────────────────────────
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 2])
+    with ctrl1:
+        n_blocks = st.slider("Blocks to fetch", 3, 10, 6, key="btc_n_blocks")
+    with ctrl2:
+        btc_res = st.slider("Render resolution", 60, 200, 100, 10, key="btc_res")
+    with ctrl3:
+        btc_iter = st.slider("Max iterations", 20, 60, 35, 5, key="btc_iter")
+    with ctrl4:
+        fc1, fc2, fc3 = st.columns(3)
+        fetch_btn   = fc1.button("🔗 Fetch Live Chain",  type="primary", key="btc_fetch")
+        expand_btn  = fc2.button("⛓️ Auto-Expand Tip",   key="btc_expand")
+        clear_btn   = fc3.button("🗑️ Clear",             key="btc_clear")
+
+    # ── price badge ────────────────────────────────────────────────
+    if st.session_state.btc_price:
+        st.markdown(
+            f"<span style='background:#f7931a;color:#000;padding:3px 10px;"
+            f"border-radius:8px;font-weight:700;font-size:1.0em'>"
+            f"₿ ${st.session_state.btc_price:,.0f} USD</span>"
+            f"&nbsp;&nbsp;<span style='color:#aaa;font-size:0.85em'>"
+            f"({st.session_state.btc_data_source})</span>",
+            unsafe_allow_html=True,
+        )
+
+    # ── clear ───────────────────────────────────────────────────────
+    if clear_btn:
+        st.session_state.btc_blocks_raw  = []
+        st.session_state.btc_frames      = []
+        st.session_state.btc_price       = None
+        st.session_state.btc_data_source = "none"
+        st.rerun()
+
+    # ── fetch live chain ────────────────────────────────────────────
+    if fetch_btn:
+        with st.spinner("Fetching BTC blocks + price..."):
+            price = fetch_btc_price()
+            raw   = fetch_btc_blocks(n_blocks)
+        st.session_state.btc_price      = price
+        st.session_state.btc_blocks_raw = raw
+        src = "live" if raw != _BTC_FALLBACK_BLOCKS[:n_blocks] else "demo fallback"
+        price_src = "live" if price != _BTC_FALLBACK_PRICE else "demo fallback"
+        st.session_state.btc_data_source = f"blocks: {src} | price: {price_src}"
+        st.session_state.btc_frames = normalize_blocks_to_4d(raw, price)
+        st.rerun()
+
+    # ── auto-expand tip ─────────────────────────────────────────────
+    if expand_btn:
+        with st.spinner("Fetching chain tip block..."):
+            tip = fetch_tip_block()
+            price = fetch_btc_price()
+        if tip:
+            existing_heights = {b["height"] for b in st.session_state.btc_blocks_raw}
+            if tip["height"] not in existing_heights:
+                st.session_state.btc_blocks_raw.append(tip)
+                st.session_state.btc_price = price
+                st.session_state.btc_frames = normalize_blocks_to_4d(
+                    st.session_state.btc_blocks_raw, price
+                )
+                st.success(f"✅ Block #{tip['height']:,} appended — chain now has {len(st.session_state.btc_frames)} frames")
+            else:
+                st.info(f"Block #{tip['height']:,} already in chain — no new blocks yet.")
+        else:
+            st.warning("Could not reach Blockstream API — using cached chain.")
+
+    # ── main display ────────────────────────────────────────────────
+    frames = st.session_state.btc_frames
+
+    if not frames:
+        st.info(
+            "Click **🔗 Fetch Live Chain** to pull real Bitcoin blocks and map them to 4D space.\n\n"
+            "**Dimension mapping**\n"
+            "| Axis | BTC Metric |\n"
+            "|------|------------|\n"
+            "| x | Block timestamp (time) |\n"
+            "| y | Transaction count (economic density) |\n"
+            "| z | Mining difficulty (complexity) |\n"
+            "| w | Block height mod 2000 → self-expanding slice |\n"
+            "| n | BTC price → fractal power [4 – 12] |"
+        )
+    else:
+        # ── metrics table ───────────────────────────────────────────
+        df = pd.DataFrame(frames)[["height","datetime","tx_count","difficulty","size_kb","w","power"]]
+        df.columns = ["Height","Date (UTC)","Tx Count","Difficulty","Size (KB)","w-slice","Power n"]
+        df["Difficulty"] = df["Difficulty"].apply(lambda v: f"{v:.3e}")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # ── block selector + render ──────────────────────────────────
+        lcol, rcol = st.columns([1, 3])
+        with lcol:
+            st.markdown("**Select a block to render**")
+            block_idx = st.slider(
+                "Block index", 0, len(frames) - 1, 0,
+                format=f"Block #%d",
+                key="btc_block_idx",
+            )
+            selected = frames[block_idx]
+
+            st.markdown("**Block parameters**")
+            param_df = pd.DataFrame([{
+                "Param": k, "Value": v
+            } for k, v in {
+                "Height":    f"#{selected['height']:,}",
+                "Date":      selected["datetime"],
+                "Tx Count":  f"{selected['tx_count']:,}",
+                "Difficulty":f"{selected['difficulty']:.3e}",
+                "Size":      f"{selected['size_kb']} KB",
+                "x":         selected["x"],
+                "y":         selected["y"],
+                "z":         selected["z"],
+                "w":         selected["w"],
+                "Power n":   selected["power"],
+            }.items()])
+            st.dataframe(param_df, hide_index=True, use_container_width=True)
+
+            render_btn = st.button("🚀 Render this block", type="primary", key="btc_render_one")
+
+        with rcol:
+            if render_btn:
+                with st.spinner(f"Rendering Block #{selected['height']:,} in 4D..."):
+                    fig = render_block_frame(selected, res=btc_res, max_iter=btc_iter)
+                    st.pyplot(fig)
+                    plt.close(fig)
+            else:
+                st.info("👈 Select a block on the left, then click **Render this block**.")
+
+        st.divider()
+
+        # ── animate chain ───────────────────────────────────────────
+        anim_col1, anim_col2 = st.columns([1, 3])
+        with anim_col1:
+            gif_res  = st.slider("GIF resolution", 30, 80, 45, 5, key="btc_gif_res")
+            gif_iter = st.slider("GIF iterations", 15, 35, 22, 1, key="btc_gif_iter")
+            animate_btn = st.button("🎬 Animate Chain → GIF", type="primary", key="btc_animate")
+
+        with anim_col2:
+            if animate_btn:
+                if not _HAS_PIL:
+                    st.error("Pillow (PIL) not available — cannot generate GIF.")
+                else:
+                    with st.spinner(f"Rendering {len(frames)} frames at {gif_res}px..."):
+                        gif_bytes = generate_chain_gif(frames, res=gif_res, max_iter=gif_iter)
+                    if gif_bytes:
+                        st.image(gif_bytes, caption="₿ BTC 4D Chain Animation", use_container_width=True)
+                        st.download_button(
+                            "⬇️ Download animated GIF",
+                            data=gif_bytes,
+                            file_name=f"btc_chain_4d_{len(frames)}blocks.gif",
+                            mime="image/gif",
+                        )
+                        st.success(f"✅ {len(frames)}-frame chain GIF ready!")
+                    else:
+                        st.error("GIF generation failed.")
+            else:
+                st.info(
+                    "Click **🎬 Animate Chain → GIF** to render every fetched block "
+                    "as a frame and export the self-expanding fractal animation."
+                )
+
+st.caption("Pure Python 4D Mandelbulb | Smooth μ | QuantumTestingFramework | ₿ BTC Self-Expanding Chain Graph")
