@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { minedBlocksTable, miningWalletTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -55,82 +56,104 @@ async function ensureWallet() {
   return w;
 }
 
+async function mineBlock() {
+  const wallet = await ensureWallet();
+
+  const blocksMined = wallet.blocksMined;
+  const blockNum = blocksMined + 1;
+
+  const btcReward = (Math.random() * 0.0005 + 0.0001).toFixed(8);
+  const ethReward = (Math.random() * 0.003 + 0.001).toFixed(8);
+  const gasFee = (Math.random() * 0.0005 + 0.0001).toFixed(8);
+
+  const power = computePower(blocksMined);
+  const wSlice = (Math.sin(blockNum * 0.37) * 0.8).toFixed(6);
+  const hash = generateHash();
+
+  const newTotalBtc = (parseFloat(wallet.totalBtc) + parseFloat(btcReward)).toFixed(8);
+  const netEth = parseFloat(ethReward) - parseFloat(gasFee);
+  const newTotalEth = (parseFloat(wallet.totalEth ?? "0") + netEth).toFixed(8);
+  const newTotalGas = (parseFloat(wallet.totalGas) + parseFloat(gasFee)).toFixed(8);
+
+  const { block, updatedWallet } = await db.transaction(async (tx) => {
+    const [block] = await tx
+      .insert(minedBlocksTable)
+      .values({
+        blockNum,
+        hash,
+        btcReward,
+        ethReward,
+        gasFee,
+        powerSnapshot: power,
+        wSliceSnapshot: parseFloat(wSlice),
+      })
+      .returning();
+
+    const [updatedWallet] = await tx
+      .update(miningWalletTable)
+      .set({
+        totalBtc: newTotalBtc,
+        totalEth: newTotalEth,
+        totalGas: newTotalGas,
+        blocksMined: blockNum,
+        lastMinedAt: new Date(),
+      })
+      .where(eq(miningWalletTable.id, wallet.id))
+      .returning();
+
+    return { block, updatedWallet };
+  });
+
+  return {
+    block: {
+      id: block.id,
+      blockNum: block.blockNum,
+      hash: block.hash,
+      btcReward: parseFloat(block.btcReward),
+      ethReward: parseFloat(block.ethReward),
+      gasFee: parseFloat(block.gasFee),
+      powerSnapshot: block.powerSnapshot,
+      wSliceSnapshot: block.wSliceSnapshot,
+      minedAt: block.minedAt,
+    },
+    wallet: {
+      totalBtc: parseFloat(updatedWallet.totalBtc),
+      totalEth: parseFloat(updatedWallet.totalEth ?? "0"),
+      totalGas: parseFloat(updatedWallet.totalGas),
+      blocksMined: updatedWallet.blocksMined,
+      lastMinedAt: updatedWallet.lastMinedAt,
+      destinationWallet1: updatedWallet.destinationWallet1 ?? DEST_WALLET_1,
+      destinationWallet2: updatedWallet.destinationWallet2 ?? DEST_WALLET_2,
+    },
+    fractal: {
+      power: computePower(updatedWallet.blocksMined),
+      maxIter: computeMaxIter(updatedWallet.blocksMined),
+      wSlice: parseFloat(wSlice),
+    },
+  };
+}
+
+export function startBackgroundMiner(intervalMs = 30_000) {
+  logger.info({ intervalMs }, "Background miner started");
+  const tick = async () => {
+    try {
+      const result = await mineBlock();
+      logger.info(
+        { blockNum: result.block.blockNum, btcReward: result.block.btcReward },
+        "Background block mined"
+      );
+    } catch (err) {
+      logger.error({ err }, "Background miner error");
+    }
+  };
+  tick();
+  setInterval(tick, intervalMs);
+}
+
 router.post("/mining/mine", async (req, res) => {
   try {
-    const wallet = await ensureWallet();
-
-    const blocksMined = wallet.blocksMined;
-    const blockNum = blocksMined + 1;
-
-    const btcReward = (Math.random() * 0.0005 + 0.0001).toFixed(8);
-    const ethReward = (Math.random() * 0.003 + 0.001).toFixed(8);
-    const gasFee = (Math.random() * 0.0005 + 0.0001).toFixed(8);
-
-    const power = computePower(blocksMined);
-    const wSlice = (Math.sin(blockNum * 0.37) * 0.8).toFixed(6);
-    const hash = generateHash();
-
-    const newTotalBtc = (parseFloat(wallet.totalBtc) + parseFloat(btcReward)).toFixed(8);
-    const netEth = parseFloat(ethReward) - parseFloat(gasFee);
-    const newTotalEth = (parseFloat(wallet.totalEth ?? "0") + netEth).toFixed(8);
-    const newTotalGas = (parseFloat(wallet.totalGas) + parseFloat(gasFee)).toFixed(8);
-
-    const { block, updatedWallet } = await db.transaction(async (tx) => {
-      const [block] = await tx
-        .insert(minedBlocksTable)
-        .values({
-          blockNum,
-          hash,
-          btcReward,
-          ethReward,
-          gasFee,
-          powerSnapshot: power,
-          wSliceSnapshot: parseFloat(wSlice),
-        })
-        .returning();
-
-      const [updatedWallet] = await tx
-        .update(miningWalletTable)
-        .set({
-          totalBtc: newTotalBtc,
-          totalEth: newTotalEth,
-          totalGas: newTotalGas,
-          blocksMined: blockNum,
-          lastMinedAt: new Date(),
-        })
-        .where(eq(miningWalletTable.id, wallet.id))
-        .returning();
-
-      return { block, updatedWallet };
-    });
-
-    res.json({
-      block: {
-        id: block.id,
-        blockNum: block.blockNum,
-        hash: block.hash,
-        btcReward: parseFloat(block.btcReward),
-        ethReward: parseFloat(block.ethReward),
-        gasFee: parseFloat(block.gasFee),
-        powerSnapshot: block.powerSnapshot,
-        wSliceSnapshot: block.wSliceSnapshot,
-        minedAt: block.minedAt,
-      },
-      wallet: {
-        totalBtc: parseFloat(updatedWallet.totalBtc),
-        totalEth: parseFloat(updatedWallet.totalEth ?? "0"),
-        totalGas: parseFloat(updatedWallet.totalGas),
-        blocksMined: updatedWallet.blocksMined,
-        lastMinedAt: updatedWallet.lastMinedAt,
-        destinationWallet1: updatedWallet.destinationWallet1 ?? DEST_WALLET_1,
-        destinationWallet2: updatedWallet.destinationWallet2 ?? DEST_WALLET_2,
-      },
-      fractal: {
-        power: computePower(updatedWallet.blocksMined),
-        maxIter: computeMaxIter(updatedWallet.blocksMined),
-        wSlice: parseFloat(wSlice),
-      },
-    });
+    const result = await mineBlock();
+    res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to mine block");
     res.status(500).json({ error: "Internal server error" });
