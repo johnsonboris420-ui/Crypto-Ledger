@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Pickaxe, Zap, Bitcoin, Cpu, Activity, Clock } from "lucide-react";
+import { Pickaxe, Zap, Bitcoin, Cpu, Activity, Clock, Copy, Check, Square, Wallet, QrCode } from "lucide-react";
 
 function getApiUrl(path: string) {
   return `/api${path}`;
@@ -117,6 +117,7 @@ interface MiningBlock {
   blockNum: number;
   hash: string;
   btcReward: number;
+  ethReward: number;
   gasFee: number;
   powerSnapshot: number;
   wSliceSnapshot: number;
@@ -125,9 +126,12 @@ interface MiningBlock {
 
 interface MiningWallet {
   totalBtc: number;
+  totalEth: number;
   totalGas: number;
   blocksMined: number;
   lastMinedAt: string | null;
+  destinationWallet1?: string;
+  destinationWallet2?: string;
   fractal?: { power: number; maxIter: number };
 }
 
@@ -135,6 +139,28 @@ interface MineResult {
   block: MiningBlock;
   wallet: MiningWallet;
   fractal: { power: number; maxIter: number; wSlice: number };
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
+    }
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 rounded hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground"
+      title="Copy address"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
 }
 
 export default function MiningPage() {
@@ -146,7 +172,7 @@ export default function MiningPage() {
   const colorModeRef = useRef<"inferno" | "gold">("inferno");
   const lastMineTimeRef = useRef<number[]>([]);
 
-  const [autoMine, setAutoMine] = useState(false);
+  const [autoMine, setAutoMine] = useState(true);
   const [isFlashing, setIsFlashing] = useState(false);
   const [fractalPower, setFractalPower] = useState(8);
   const [fractalMaxIter, setFractalMaxIter] = useState(50);
@@ -276,6 +302,9 @@ export default function MiningPage() {
     : "0.00";
   const difficulty = Math.floor(fractalPower * 100);
 
+  const destWallet1 = wallet?.destinationWallet1 ?? "Loading...";
+  const destWallet2 = wallet?.destinationWallet2 ?? "Loading...";
+
   function formatBtc(val: number | undefined) {
     return (val ?? 0).toFixed(8);
   }
@@ -302,7 +331,7 @@ export default function MiningPage() {
             <h1 className="text-2xl font-bold text-foreground">BTC Fractal Mining</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Mine simulated BTC & GAS — each block expands the 4D Mandelbulb fractal
+            Mine simulated BTC & ETH — each block expands the 4D Mandelbulb fractal
           </p>
         </div>
 
@@ -354,6 +383,12 @@ export default function MiningPage() {
               <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/70 text-xs text-orange-300 border border-orange-500/30 font-mono">
                 P={fractalPower.toFixed(1)} I={fractalMaxIter} W={wSliceRef.current.toFixed(3)}
               </div>
+              {autoMine && (
+                <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-green-900/70 text-xs text-green-300 border border-green-500/30 flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  Mining
+                </div>
+              )}
               {isFlashing && (
                 <div className="absolute inset-0 bg-orange-500/10 pointer-events-none flex items-center justify-center">
                   <div className="text-orange-400 text-lg font-bold animate-bounce">Block Mined!</div>
@@ -375,12 +410,21 @@ export default function MiningPage() {
                 onClick={() => setAutoMine((v) => !v)}
                 className={`px-5 py-3 rounded-xl border font-semibold text-sm transition-colors flex items-center gap-2 ${
                   autoMine
-                    ? "bg-green-600/20 border-green-500 text-green-400 hover:bg-green-600/30"
-                    : "bg-card/60 border-border text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    ? "bg-red-600/20 border-red-500 text-red-400 hover:bg-red-600/30"
+                    : "bg-green-600/20 border-green-500 text-green-400 hover:bg-green-600/30"
                 }`}
               >
-                <div className={`w-2 h-2 rounded-full ${autoMine ? "bg-green-400 animate-pulse" : "bg-muted-foreground"}`} />
-                {autoMine ? "Auto-Mining" : "Auto-Mine"}
+                {autoMine ? (
+                  <>
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    Stop Mining
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-green-400" />
+                    Start Auto-Mine
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -401,10 +445,17 @@ export default function MiningPage() {
                   <Bitcoin className="w-6 h-6 text-orange-400/60" />
                 </div>
 
+                <div className="flex justify-between items-center p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">ETH Balance</div>
+                    <div className="font-mono text-sm font-bold text-blue-400">{(wallet?.totalEth ?? 0).toFixed(6)} ETH</div>
+                  </div>
+                  <Zap className="w-6 h-6 text-blue-400/60" />
+                </div>
                 <div className="flex justify-between items-center p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
                   <div>
-                    <div className="text-xs text-muted-foreground mb-0.5">GAS Balance</div>
-                    <div className="font-mono text-sm font-bold text-purple-400">{formatGas(wallet?.totalGas)} GAS</div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Gas Spent</div>
+                    <div className="font-mono text-sm font-bold text-purple-400">{formatGas(wallet?.totalGas)} ETH</div>
                   </div>
                   <Zap className="w-6 h-6 text-purple-400/60" />
                 </div>
@@ -414,6 +465,46 @@ export default function MiningPage() {
                   <span className="font-mono">
                     {wallet?.lastMinedAt ? timeAgo(wallet.lastMinedAt) : "Never"}
                   </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 backdrop-blur-sm p-5 space-y-3">
+              <h3 className="font-semibold text-foreground text-sm uppercase tracking-wider flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-yellow-400" />
+                BNB Destination Wallets
+              </h3>
+              <p className="text-xs text-muted-foreground">Mining rewards are sent to your BNB Chain addresses:</p>
+
+              <div className="space-y-2">
+                <div className="rounded-lg bg-black/30 border border-border/40 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-yellow-400 font-semibold">Account 1</span>
+                    <CopyButton text={destWallet1} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded border border-yellow-500/20 bg-yellow-500/5 flex items-center justify-center flex-shrink-0">
+                      <QrCode className="w-6 h-6 text-yellow-400/50" />
+                    </div>
+                    <div className="font-mono text-[10px] text-muted-foreground break-all leading-relaxed">
+                      {destWallet1}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-black/30 border border-border/40 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-yellow-400 font-semibold">Account 2</span>
+                    <CopyButton text={destWallet2} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded border border-yellow-500/20 bg-yellow-500/5 flex items-center justify-center flex-shrink-0">
+                      <QrCode className="w-6 h-6 text-yellow-400/50" />
+                    </div>
+                    <div className="font-mono text-[10px] text-muted-foreground break-all leading-relaxed">
+                      {destWallet2}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -465,7 +556,7 @@ export default function MiningPage() {
           <div className="overflow-x-auto">
             {recentBlocks.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground text-sm">
-                No blocks mined yet. Hit <span className="text-orange-400">Mine Block</span> to start!
+                No blocks mined yet. Auto-mine is running — blocks will appear shortly!
               </div>
             ) : (
               <table className="w-full text-xs">
@@ -474,7 +565,8 @@ export default function MiningPage() {
                     <th className="text-left px-5 py-3 font-medium">Block #</th>
                     <th className="text-left px-5 py-3 font-medium">Hash</th>
                     <th className="text-right px-5 py-3 font-medium">BTC Reward</th>
-                    <th className="text-right px-5 py-3 font-medium">GAS Fee</th>
+                    <th className="text-right px-5 py-3 font-medium">ETH Mined</th>
+                    <th className="text-right px-5 py-3 font-medium">Gas Fee (ETH)</th>
                     <th className="text-right px-5 py-3 font-medium">Power</th>
                     <th className="text-right px-5 py-3 font-medium">Time</th>
                   </tr>
@@ -492,8 +584,11 @@ export default function MiningPage() {
                       <td className="px-5 py-3 text-right font-mono text-orange-400">
                         +{block.btcReward.toFixed(8)}
                       </td>
+                      <td className="px-5 py-3 text-right font-mono text-blue-400">
+                        +{(block.ethReward ?? 0).toFixed(8)}
+                      </td>
                       <td className="px-5 py-3 text-right font-mono text-purple-400">
-                        {block.gasFee.toFixed(8)}
+                        -{block.gasFee.toFixed(8)}
                       </td>
                       <td className="px-5 py-3 text-right font-mono text-blue-400">
                         {block.powerSnapshot.toFixed(1)}

@@ -1,2 +1,0 @@
-﻿Transaction Hash,Status,Method,BlockNo,DateTime (UTC),From,From_Nametag,To,To_Nametag,Amount,Value (USD)
-"0x78b505a630e0f01e5573adf9c117417db049034b916429f755df2d0f1d0198a9","Success","Transfer","14919808","2022-02-03 01:57:54","0x4B9e328731D1aC94F49D38D73D2879Fbf5D31bF0","","0x10ED43C718714eb63d5aA57B78B54704E256024E","PancakeSwap: Router v2","87,443.040690567179401837","$1.07",""

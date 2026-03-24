@@ -5,6 +5,9 @@ import { desc, eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 
+const DEST_WALLET_1 = "0x572e3d1d93b214b229c1ffbbfcb491a53621a104";
+const DEST_WALLET_2 = "0x69c86ce9c78dda8bc7ef14d80728f805cedcab45";
+
 function generateHash(): string {
   const chars = "0123456789abcdef";
   let hash = "0x";
@@ -29,11 +32,27 @@ async function ensureWallet() {
   if (wallets.length === 0) {
     const [wallet] = await db
       .insert(miningWalletTable)
-      .values({ totalBtc: "0", totalGas: "0", blocksMined: 0 })
+      .values({
+        totalBtc: "0",
+        totalEth: "0",
+        totalGas: "0",
+        blocksMined: 0,
+        destinationWallet1: DEST_WALLET_1,
+        destinationWallet2: DEST_WALLET_2,
+      })
       .returning();
     return wallet;
   }
-  return wallets[0];
+  const w = wallets[0];
+  if (!w.destinationWallet1 || !w.destinationWallet2) {
+    const [updated] = await db
+      .update(miningWalletTable)
+      .set({ destinationWallet1: DEST_WALLET_1, destinationWallet2: DEST_WALLET_2 })
+      .where(eq(miningWalletTable.id, w.id))
+      .returning();
+    return updated;
+  }
+  return w;
 }
 
 router.post("/mining/mine", async (req, res) => {
@@ -44,13 +63,16 @@ router.post("/mining/mine", async (req, res) => {
     const blockNum = blocksMined + 1;
 
     const btcReward = (Math.random() * 0.0005 + 0.0001).toFixed(8);
-    const gasFee = (Math.random() * 0.00005 + 0.00001).toFixed(8);
+    const ethReward = (Math.random() * 0.003 + 0.001).toFixed(8);
+    const gasFee = (Math.random() * 0.0005 + 0.0001).toFixed(8);
 
     const power = computePower(blocksMined);
     const wSlice = (Math.sin(blockNum * 0.37) * 0.8).toFixed(6);
     const hash = generateHash();
 
     const newTotalBtc = (parseFloat(wallet.totalBtc) + parseFloat(btcReward)).toFixed(8);
+    const netEth = parseFloat(ethReward) - parseFloat(gasFee);
+    const newTotalEth = (parseFloat(wallet.totalEth ?? "0") + netEth).toFixed(8);
     const newTotalGas = (parseFloat(wallet.totalGas) + parseFloat(gasFee)).toFixed(8);
 
     const { block, updatedWallet } = await db.transaction(async (tx) => {
@@ -60,6 +82,7 @@ router.post("/mining/mine", async (req, res) => {
           blockNum,
           hash,
           btcReward,
+          ethReward,
           gasFee,
           powerSnapshot: power,
           wSliceSnapshot: parseFloat(wSlice),
@@ -70,6 +93,7 @@ router.post("/mining/mine", async (req, res) => {
         .update(miningWalletTable)
         .set({
           totalBtc: newTotalBtc,
+          totalEth: newTotalEth,
           totalGas: newTotalGas,
           blocksMined: blockNum,
           lastMinedAt: new Date(),
@@ -86,6 +110,7 @@ router.post("/mining/mine", async (req, res) => {
         blockNum: block.blockNum,
         hash: block.hash,
         btcReward: parseFloat(block.btcReward),
+        ethReward: parseFloat(block.ethReward),
         gasFee: parseFloat(block.gasFee),
         powerSnapshot: block.powerSnapshot,
         wSliceSnapshot: block.wSliceSnapshot,
@@ -93,9 +118,12 @@ router.post("/mining/mine", async (req, res) => {
       },
       wallet: {
         totalBtc: parseFloat(updatedWallet.totalBtc),
+        totalEth: parseFloat(updatedWallet.totalEth ?? "0"),
         totalGas: parseFloat(updatedWallet.totalGas),
         blocksMined: updatedWallet.blocksMined,
         lastMinedAt: updatedWallet.lastMinedAt,
+        destinationWallet1: updatedWallet.destinationWallet1 ?? DEST_WALLET_1,
+        destinationWallet2: updatedWallet.destinationWallet2 ?? DEST_WALLET_2,
       },
       fractal: {
         power: computePower(updatedWallet.blocksMined),
@@ -114,9 +142,12 @@ router.get("/mining/wallet", async (req, res) => {
     const wallet = await ensureWallet();
     res.json({
       totalBtc: parseFloat(wallet.totalBtc),
+      totalEth: parseFloat(wallet.totalEth ?? "0"),
       totalGas: parseFloat(wallet.totalGas),
       blocksMined: wallet.blocksMined,
       lastMinedAt: wallet.lastMinedAt,
+      destinationWallet1: wallet.destinationWallet1 ?? DEST_WALLET_1,
+      destinationWallet2: wallet.destinationWallet2 ?? DEST_WALLET_2,
       fractal: {
         power: computePower(wallet.blocksMined),
         maxIter: computeMaxIter(wallet.blocksMined),
@@ -142,6 +173,7 @@ router.get("/mining/blocks", async (req, res) => {
         blockNum: b.blockNum,
         hash: b.hash,
         btcReward: parseFloat(b.btcReward),
+        ethReward: parseFloat(b.ethReward ?? "0"),
         gasFee: parseFloat(b.gasFee),
         powerSnapshot: b.powerSnapshot,
         wSliceSnapshot: b.wSliceSnapshot,
@@ -150,6 +182,72 @@ router.get("/mining/blocks", async (req, res) => {
     );
   } catch (err) {
     req.log.error({ err }, "Failed to get mined blocks");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/mining/holding", async (req, res) => {
+  try {
+    const wallet = await ensureWallet();
+    const totalBtc = parseFloat(wallet.totalBtc);
+    const totalEth = parseFloat(wallet.totalEth ?? "0");
+    const btcPriceUsd = 65000;
+    const ethPriceUsd = 3500;
+    res.json([
+      {
+        symbol: "BTC",
+        name: "Mined BTC",
+        amount: totalBtc,
+        valueUsd: totalBtc * btcPriceUsd,
+        priceUsd: btcPriceUsd,
+        change24hPercent: 0,
+        chain: "Mining Reward",
+      },
+      {
+        symbol: "ETH",
+        name: "Mined ETH (Gas)",
+        amount: totalEth,
+        valueUsd: totalEth * ethPriceUsd,
+        priceUsd: ethPriceUsd,
+        change24hPercent: 0,
+        chain: "Mining Reward",
+      },
+    ]);
+  } catch (err) {
+    req.log.error({ err }, "Failed to get mining holding");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/mining/transactions", async (req, res) => {
+  try {
+    const blocks = await db
+      .select()
+      .from(minedBlocksTable)
+      .orderBy(desc(minedBlocksTable.minedAt))
+      .limit(20);
+
+    res.json(
+      blocks.map((b) => ({
+        id: b.id + 100000,
+        hash: b.hash,
+        chainName: "BTC",
+        status: "Success",
+        action: "Mine",
+        token: "BTC",
+        from: "Mining Pool",
+        fromInfo: "Fractal Miner",
+        to: DEST_WALLET_1,
+        toInfo: "My BNB Wallet",
+        amount: `+${parseFloat(b.btcReward).toFixed(8)} BTC`,
+        ethReward: `+${parseFloat(b.ethReward ?? "0").toFixed(8)} ETH`,
+        fee: `${parseFloat(b.gasFee).toFixed(8)} ETH`,
+        block: String(b.blockNum),
+        createdAt: b.minedAt instanceof Date ? b.minedAt.toISOString() : String(b.minedAt),
+      }))
+    );
+  } catch (err) {
+    req.log.error({ err }, "Failed to get mining transactions");
     res.status(500).json({ error: "Internal server error" });
   }
 });

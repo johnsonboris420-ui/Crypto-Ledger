@@ -2,10 +2,14 @@ import { Layout } from "@/components/layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatUsd, formatCrypto } from "@/lib/utils";
 import { useGetPortfolio } from "@workspace/api-client-react";
-import { ArrowUpRight, ArrowDownRight, Activity, Zap, Coins, Wallet } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowUpRight, ArrowDownRight, Activity, Zap, Coins, Wallet, Pickaxe } from "lucide-react";
 import { motion } from "framer-motion";
 
-// Fallback data if API is unseeded or missing
+function getApiUrl(path: string) {
+  return `/api${path}`;
+}
+
 const MOCK_PORTFOLIO = {
   totalValueUsd: 2248.37,
   change24h: 12.50,
@@ -21,15 +25,53 @@ const MOCK_PORTFOLIO = {
   ]
 };
 
+interface MiningHolding {
+  symbol: string;
+  name: string;
+  amount: number;
+  valueUsd: number;
+  priceUsd: number;
+  change24hPercent: number;
+  chain: string;
+}
+
 export default function PortfolioPage() {
   const { data: apiPortfolio, isLoading } = useGetPortfolio({
     query: {
-      retry: false, 
+      retry: false,
       staleTime: 60000
     }
   });
 
-  const portfolio = apiPortfolio || MOCK_PORTFOLIO;
+  const { data: minedHoldings } = useQuery<MiningHolding[]>({
+    queryKey: ["mining-holding"],
+    queryFn: async () => {
+      const res = await fetch(getApiUrl("/mining/holding"));
+      if (!res.ok) throw new Error("Failed to fetch mining holding");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [data];
+    },
+    refetchInterval: 10000,
+  });
+
+  const basePortfolio = apiPortfolio || MOCK_PORTFOLIO;
+
+  const portfolio = (() => {
+    if (!minedHoldings || minedHoldings.length === 0) return basePortfolio;
+    const validHoldings = minedHoldings.filter(h => h.amount > 0);
+    if (validHoldings.length === 0) return basePortfolio;
+    const existingMined = basePortfolio.holdings.filter(h => h.chain === "Mining Reward");
+    if (existingMined.length > 0) return basePortfolio;
+    const addedValue = validHoldings.reduce((sum, h) => sum + h.valueUsd, 0);
+    return {
+      ...basePortfolio,
+      totalValueUsd: basePortfolio.totalValueUsd + addedValue,
+      holdings: [
+        ...basePortfolio.holdings,
+        ...validHoldings,
+      ],
+    };
+  })();
 
   const isPositive = portfolio.change24hPercent >= 0;
 
@@ -47,7 +89,6 @@ export default function PortfolioPage() {
     <Layout>
       <div className="max-w-6xl mx-auto space-y-8 animate-in">
         
-        {/* Header / Hero Section */}
         <div className="relative rounded-3xl overflow-hidden border border-border/50 shadow-2xl">
           <div className="absolute inset-0">
             <img 
@@ -88,7 +129,6 @@ export default function PortfolioPage() {
           </div>
         </div>
 
-        {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
             <CardContent className="p-6 flex items-center space-x-4">
@@ -125,7 +165,6 @@ export default function PortfolioPage() {
           </Card>
         </div>
 
-        {/* Holdings Table */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between py-6">
             <CardTitle>Your Assets</CardTitle>
@@ -145,40 +184,46 @@ export default function PortfolioPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/30">
-                  {portfolio.holdings.map((holding, i) => (
-                    <motion.tr 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                      key={holding.symbol} 
-                      className="hover:bg-white/[0.02] transition-colors group"
-                    >
-                      <td className="py-4 px-6">
-                        <div className="flex items-center">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 border border-white/10 flex items-center justify-center font-display font-bold text-sm shadow-inner text-foreground">
-                            {holding.symbol[0]}
+                  {portfolio.holdings.map((holding, i) => {
+                    const isMined = holding.chain === "Mining Reward";
+                    return (
+                      <motion.tr
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        key={`${holding.symbol}-${holding.chain}`}
+                        className={`hover:bg-white/[0.02] transition-colors group ${isMined ? "border-l-2 border-orange-500/50" : ""}`}
+                      >
+                        <td className="py-4 px-6">
+                          <div className="flex items-center">
+                            <div className={`w-10 h-10 rounded-full border border-white/10 flex items-center justify-center font-display font-bold text-sm shadow-inner ${isMined ? "bg-gradient-to-br from-orange-500/30 to-yellow-500/20" : "bg-gradient-to-br from-primary/20 to-accent/20"} text-foreground`}>
+                              {isMined ? <Pickaxe className="w-4 h-4 text-orange-400" /> : holding.symbol[0]}
+                            </div>
+                            <div className="ml-4">
+                              <p className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                                {holding.symbol}
+                                {isMined && <span className="ml-2 text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-normal">Mined</span>}
+                              </p>
+                              <p className="text-xs text-muted-foreground">{holding.name} • {holding.chain}</p>
+                            </div>
                           </div>
-                          <div className="ml-4">
-                            <p className="font-semibold text-foreground group-hover:text-primary transition-colors">{holding.symbol}</p>
-                            <p className="text-xs text-muted-foreground">{holding.name} • {holding.chain}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-4 px-6">
-                        <p className="font-medium text-foreground">{formatUsd(holding.priceUsd)}</p>
-                        <p className={`text-xs font-medium mt-1 ${holding.change24hPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {holding.change24hPercent >= 0 ? '+' : ''}{holding.change24hPercent.toFixed(2)}%
-                        </p>
-                      </td>
-                      <td className="py-4 px-6">
-                        <p className="font-medium text-foreground">{formatCrypto(holding.amount)}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{holding.symbol}</p>
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        <p className="font-semibold text-foreground">{formatUsd(holding.valueUsd)}</p>
-                      </td>
-                    </motion.tr>
-                  ))}
+                        </td>
+                        <td className="py-4 px-6">
+                          <p className="font-medium text-foreground">{formatUsd(holding.priceUsd)}</p>
+                          <p className={`text-xs font-medium mt-1 ${holding.change24hPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {holding.change24hPercent >= 0 ? '+' : ''}{holding.change24hPercent.toFixed(2)}%
+                          </p>
+                        </td>
+                        <td className="py-4 px-6">
+                          <p className="font-medium text-foreground">{formatCrypto(holding.amount)}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{holding.symbol}</p>
+                        </td>
+                        <td className="py-4 px-6 text-right">
+                          <p className="font-semibold text-foreground">{formatUsd(holding.valueUsd)}</p>
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

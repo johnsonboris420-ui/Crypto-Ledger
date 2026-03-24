@@ -60,6 +60,7 @@ export const minedBlocksTable = pgTable("mined_blocks", {
   blockNum: integer("block_num").notNull(),
   hash: text("hash").notNull(),
   btcReward: decimal("btc_reward", { precision: 18, scale: 8 }).notNull(),
+  ethReward: decimal("eth_reward", { precision: 18, scale: 8 }).notNull().default("0"),
   gasFee: decimal("gas_fee", { precision: 18, scale: 8 }).notNull(),
   powerSnapshot: real("power_snapshot").notNull(),
   wSliceSnapshot: real("w_slice_snapshot").notNull(),
@@ -69,9 +70,12 @@ export const minedBlocksTable = pgTable("mined_blocks", {
 export const miningWalletTable = pgTable("mining_wallet", {
   id: serial("id").primaryKey(),
   totalBtc: decimal("total_btc", { precision: 18, scale: 8 }).notNull().default("0"),
+  totalEth: decimal("total_eth", { precision: 18, scale: 8 }).notNull().default("0"),
   totalGas: decimal("total_gas", { precision: 18, scale: 8 }).notNull().default("0"),
   blocksMined: integer("blocks_mined").notNull().default(0),
   lastMinedAt: timestamp("last_mined_at"),
+  destinationWallet1: text("destination_wallet_1").default("0x572e3d1d93b214b229c1ffbbfcb491a53621a104"),
+  destinationWallet2: text("destination_wallet_2").default("0x69c86ce9c78dda8bc7ef14d80728f805cedcab45"),
 });
 
 export const insertMinedBlockSchema = createInsertSchema(minedBlocksTable).omit({ id: true });
