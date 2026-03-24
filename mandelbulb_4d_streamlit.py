@@ -577,35 +577,49 @@ def _parse_mempool_block(b: dict) -> dict:
 
 def fetch_btc_blocks(n: int = 10) -> list:
     """
-    Fetch the latest N Bitcoin blocks from mempool.space (includes total fees).
-    Falls back to _BTC_FALLBACK_BLOCKS on any error.
+    Fetch the latest N Bitcoin blocks from blockstream.info (primary).
+    Enhances with fee data from mempool.space if available; otherwise estimates
+    total_fees_sat as tx_count * 13_000 sat (avg fee rate proxy).
+    Falls back to _BTC_FALLBACK_BLOCKS on complete failure.
     """
     if not _HAS_REQUESTS:
         return _BTC_FALLBACK_BLOCKS[:n]
+
+    blocks = []
     try:
-        r = _requests.get("https://mempool.space/api/v1/blocks", timeout=10)
+        r = _requests.get("https://blockstream.info/api/blocks", timeout=8)
         r.raise_for_status()
         raw = r.json()
-        blocks = [_parse_mempool_block(b) for b in raw[:n]]
-        return blocks if blocks else _BTC_FALLBACK_BLOCKS[:n]
+        for b in raw[:n]:
+            tx_count = int(b.get("tx_count", 1))
+            blocks.append({
+                "height":         int(b.get("height", 0)),
+                "timestamp":      int(b.get("timestamp", 0)),
+                "tx_count":       tx_count,
+                "difficulty":     float(b.get("difficulty", 88_100_000_000_000.0)),
+                "total_fees_sat": max(1, tx_count * 13_000),
+            })
     except Exception:
-        try:
-            r = _requests.get("https://blockstream.info/api/blocks", timeout=8)
-            r.raise_for_status()
-            raw = r.json()
-            blocks = []
-            for b in raw[:n]:
-                tx_count = int(b.get("tx_count", 1))
-                blocks.append({
-                    "height":         int(b.get("height", 0)),
-                    "timestamp":      int(b.get("timestamp", 0)),
-                    "tx_count":       tx_count,
-                    "difficulty":     float(b.get("difficulty", 88_100_000_000_000.0)),
-                    "total_fees_sat": max(1, tx_count * 13_000),
-                })
-            return blocks if blocks else _BTC_FALLBACK_BLOCKS[:n]
-        except Exception:
-            return _BTC_FALLBACK_BLOCKS[:n]
+        pass
+
+    if not blocks:
+        return _BTC_FALLBACK_BLOCKS[:n]
+
+    # Optionally enhance fee data from mempool.space (best-effort)
+    try:
+        r2 = _requests.get("https://mempool.space/api/v1/blocks", timeout=8)
+        if r2.ok:
+            mpool_by_height = {
+                int(b.get("height", -1)): _parse_mempool_block(b)
+                for b in r2.json()
+            }
+            for blk in blocks:
+                if blk["height"] in mpool_by_height:
+                    blk["total_fees_sat"] = mpool_by_height[blk["height"]]["total_fees_sat"]
+    except Exception:
+        pass
+
+    return blocks
 
 
 def fetch_tip_block() -> dict | None:
@@ -682,7 +696,7 @@ def normalize_blocks_to_4d(blocks: list, btc_price: float) -> list:
         x = norm(b["timestamp"], ts_lo,  ts_hi)
         y = norm(fpt,            fpt_lo, fpt_hi)
         z = norm(b["difficulty"],dif_lo, dif_hi)
-        w = (b["height"] % 3000) / 1000.0 - 1.5
+        w = float((b["height"] % 2) * 3) - 1.5
         dt = datetime.fromtimestamp(b["timestamp"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
         result.append({
             "height":         b["height"],
@@ -1072,9 +1086,9 @@ with tab3:
             "| Axis | BTC Metric |\n"
             "|------|------------|\n"
             "| x | Block timestamp (time) |\n"
-            "| y | Transaction count (economic density) |\n"
+            "| y | Total fees / tx count (fee density / economic) |\n"
             "| z | Mining difficulty (complexity) |\n"
-            "| w | Block height mod 2000 → self-expanding slice |\n"
+            "| w | height % 2 × 3 − 1.5 → -1.5 or +1.5 (self-expanding toggle) |\n"
             "| n | BTC price → fractal power [4 – 12] |"
         )
     else:
@@ -1105,7 +1119,7 @@ with tab3:
                 "Date":      selected["datetime"],
                 "Tx Count":  f"{selected['tx_count']:,}",
                 "Difficulty":f"{selected['difficulty']:.3e}",
-                "Size":      f"{selected['size_kb']} KB",
+                "Fees/Tx":   f"{int(selected['fees_per_tx'])} sat",
                 "x":         selected["x"],
                 "y":         selected["y"],
                 "z":         selected["z"],
