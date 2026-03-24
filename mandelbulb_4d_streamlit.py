@@ -531,12 +531,13 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
 
 # ====================== BTC CHAIN DATA LAYER ======================
 
+# Fallback demo blocks with total_fees_sat included (realistic values)
 _BTC_FALLBACK_BLOCKS = [
-    {"height": 888001, "timestamp": 1742600000, "tx_count": 3821, "difficulty": 88_100_000_000_000.0, "size": 1_482_000},
-    {"height": 888002, "timestamp": 1742600600, "tx_count": 2944, "difficulty": 88_100_000_000_000.0, "size": 1_205_000},
-    {"height": 888003, "timestamp": 1742601300, "tx_count": 4102, "difficulty": 88_100_000_000_000.0, "size": 1_611_000},
-    {"height": 888004, "timestamp": 1742601950, "tx_count": 3377, "difficulty": 88_100_000_000_000.0, "size": 1_320_000},
-    {"height": 888005, "timestamp": 1742602700, "tx_count": 3955, "difficulty": 88_100_000_000_000.0, "size": 1_540_000},
+    {"height": 888001, "timestamp": 1742600000, "tx_count": 3821, "difficulty": 88_100_000_000_000.0, "total_fees_sat": 52_341_800},
+    {"height": 888002, "timestamp": 1742600600, "tx_count": 2944, "difficulty": 88_100_000_000_000.0, "total_fees_sat": 31_205_600},
+    {"height": 888003, "timestamp": 1742601300, "tx_count": 4102, "difficulty": 88_100_000_000_000.0, "total_fees_sat": 71_644_200},
+    {"height": 888004, "timestamp": 1742601950, "tx_count": 3377, "difficulty": 88_100_000_000_000.0, "total_fees_sat": 44_918_300},
+    {"height": 888005, "timestamp": 1742602700, "tx_count": 3955, "difficulty": 88_100_000_000_000.0, "total_fees_sat": 63_280_100},
 ]
 _BTC_FALLBACK_PRICE = 87_432.0
 
@@ -557,36 +558,68 @@ def fetch_btc_price() -> float:
         return _BTC_FALLBACK_PRICE
 
 
+def _parse_mempool_block(b: dict) -> dict:
+    """Extract canonical fields from a mempool.space block response."""
+    extras = b.get("extras") or {}
+    total_fees = int(extras.get("totalFees", 0))
+    if total_fees == 0:
+        total_fees = int(extras.get("reward", 312_500_000)) - 312_500_000
+    if total_fees <= 0:
+        total_fees = max(1, int(b.get("tx_count", 1)) * 13_000)
+    return {
+        "height":         int(b.get("height", 0)),
+        "timestamp":      int(b.get("timestamp", 0)),
+        "tx_count":       int(b.get("tx_count", 0)),
+        "difficulty":     float(b.get("difficulty", 88_100_000_000_000.0)),
+        "total_fees_sat": total_fees,
+    }
+
+
 def fetch_btc_blocks(n: int = 10) -> list:
     """
-    Fetch the latest N Bitcoin blocks from blockstream.info.
-    Returns a list of dicts with keys: height, timestamp, tx_count, difficulty, size.
-    Falls back to _BTC_FALLBACK_BLOCKS on error.
+    Fetch the latest N Bitcoin blocks from mempool.space (includes total fees).
+    Falls back to _BTC_FALLBACK_BLOCKS on any error.
     """
     if not _HAS_REQUESTS:
         return _BTC_FALLBACK_BLOCKS[:n]
     try:
-        r = _requests.get("https://blockstream.info/api/blocks", timeout=8)
+        r = _requests.get("https://mempool.space/api/v1/blocks", timeout=10)
         r.raise_for_status()
         raw = r.json()
-        blocks = []
-        for b in raw[:n]:
-            blocks.append({
-                "height":     int(b.get("height", 0)),
-                "timestamp":  int(b.get("timestamp", 0)),
-                "tx_count":   int(b.get("tx_count", 0)),
-                "difficulty": float(b.get("difficulty", 88_100_000_000_000.0)),
-                "size":       int(b.get("size", 1_500_000)),
-            })
+        blocks = [_parse_mempool_block(b) for b in raw[:n]]
         return blocks if blocks else _BTC_FALLBACK_BLOCKS[:n]
     except Exception:
-        return _BTC_FALLBACK_BLOCKS[:n]
+        try:
+            r = _requests.get("https://blockstream.info/api/blocks", timeout=8)
+            r.raise_for_status()
+            raw = r.json()
+            blocks = []
+            for b in raw[:n]:
+                tx_count = int(b.get("tx_count", 1))
+                blocks.append({
+                    "height":         int(b.get("height", 0)),
+                    "timestamp":      int(b.get("timestamp", 0)),
+                    "tx_count":       tx_count,
+                    "difficulty":     float(b.get("difficulty", 88_100_000_000_000.0)),
+                    "total_fees_sat": max(1, tx_count * 13_000),
+                })
+            return blocks if blocks else _BTC_FALLBACK_BLOCKS[:n]
+        except Exception:
+            return _BTC_FALLBACK_BLOCKS[:n]
 
 
 def fetch_tip_block() -> dict | None:
-    """Fetch only the current chain tip block. Returns None on failure."""
+    """Fetch the current chain tip block with fee data. Returns None on failure."""
     if not _HAS_REQUESTS:
         return None
+    try:
+        r = _requests.get("https://mempool.space/api/v1/blocks", timeout=10)
+        r.raise_for_status()
+        raw = r.json()
+        if raw:
+            return _parse_mempool_block(raw[0])
+    except Exception:
+        pass
     try:
         r = _requests.get("https://blockstream.info/api/blocks/tip/height", timeout=6)
         r.raise_for_status()
@@ -597,12 +630,13 @@ def fetch_tip_block() -> dict | None:
         r3 = _requests.get(f"https://blockstream.info/api/block/{block_hash}", timeout=6)
         r3.raise_for_status()
         b = r3.json()
+        tx_count = int(b.get("tx_count", 1))
         return {
-            "height":     int(b.get("height", 0)),
-            "timestamp":  int(b.get("timestamp", 0)),
-            "tx_count":   int(b.get("tx_count", 0)),
-            "difficulty": float(b.get("difficulty", 88_100_000_000_000.0)),
-            "size":       int(b.get("size", 1_500_000)),
+            "height":         int(b.get("height", 0)),
+            "timestamp":      int(b.get("timestamp", 0)),
+            "tx_count":       tx_count,
+            "difficulty":     float(b.get("difficulty", 88_100_000_000_000.0)),
+            "total_fees_sat": max(1, tx_count * 13_000),
         }
     except Exception:
         return None
@@ -610,21 +644,24 @@ def fetch_tip_block() -> dict | None:
 
 def normalize_blocks_to_4d(blocks: list, btc_price: float) -> list:
     """
-    Map each block's on-chain metrics to a (x, y, z, w, power) 4D coordinate + power.
+    Map each block's on-chain metrics to 4D coordinates (x, y, z, w) + fractal power n.
 
     Mapping:
-      x  = normalized timestamp → [-1.5, 1.5]  (time axis)
-      y  = normalized tx_count  → [-1.5, 1.5]  (economic density)
-      z  = normalized difficulty → [-1.5, 1.5]  (mining complexity)
-      w  = (height % 2000) / 1000.0 - 1.0       (self-expanding slice)
-      n  = BTC price mapped to [4.0, 12.0]       (fractal morphology)
+      x  = normalized timestamp            → [-1.5, 1.5]  (time axis)
+      y  = normalized total_fees / tx_count → [-1.5, 1.5]  (fee density / economic)
+      z  = normalized difficulty            → [-1.5, 1.5]  (mining complexity)
+      w  = (height % 3000) / 1000.0 - 1.5  → [-1.5, 1.5]  (self-expanding slice)
+      n  = BTC price mapped to [4.0, 12.0]                  (fractal morphology)
     """
     if not blocks:
         return []
 
-    ts_vals   = [b["timestamp"]  for b in blocks]
-    tx_vals   = [b["tx_count"]   for b in blocks]
-    diff_vals = [b["difficulty"] for b in blocks]
+    def fees_per_tx(b):
+        return b["total_fees_sat"] / max(1, b["tx_count"])
+
+    ts_vals  = [b["timestamp"] for b in blocks]
+    fpt_vals = [fees_per_tx(b)  for b in blocks]
+    dif_vals = [b["difficulty"] for b in blocks]
 
     def norm(val, lo, hi, out_lo=-1.5, out_hi=1.5):
         span = hi - lo
@@ -632,26 +669,28 @@ def normalize_blocks_to_4d(blocks: list, btc_price: float) -> list:
             return 0.0
         return out_lo + (val - lo) / span * (out_hi - out_lo)
 
-    ts_lo,   ts_hi   = min(ts_vals),   max(ts_vals)
-    tx_lo,   tx_hi   = min(tx_vals),   max(tx_vals)
-    diff_lo, diff_hi = min(diff_vals), max(diff_vals)
+    ts_lo,  ts_hi  = min(ts_vals),  max(ts_vals)
+    fpt_lo, fpt_hi = min(fpt_vals), max(fpt_vals)
+    dif_lo, dif_hi = min(dif_vals), max(dif_vals)
 
     MAX_BTC_PRICE = 200_000.0
     power_n = float(np.clip(4.0 + (btc_price / MAX_BTC_PRICE) * 8.0, 4.0, 12.0))
 
     result = []
     for b in blocks:
-        x = norm(b["timestamp"],  ts_lo,   ts_hi)
-        y = norm(b["tx_count"],   tx_lo,   tx_hi)
-        z = norm(b["difficulty"], diff_lo, diff_hi)
-        w = (b["height"] % 2000) / 1000.0 - 1.0
+        fpt = fees_per_tx(b)
+        x = norm(b["timestamp"], ts_lo,  ts_hi)
+        y = norm(fpt,            fpt_lo, fpt_hi)
+        z = norm(b["difficulty"],dif_lo, dif_hi)
+        w = (b["height"] % 3000) / 1000.0 - 1.5
         dt = datetime.fromtimestamp(b["timestamp"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
         result.append({
-            "height":    b["height"],
-            "datetime":  dt,
-            "tx_count":  b["tx_count"],
-            "difficulty": b["difficulty"],
-            "size_kb":   round(b["size"] / 1024, 1),
+            "height":         b["height"],
+            "datetime":       dt,
+            "tx_count":       b["tx_count"],
+            "total_fees_sat": b["total_fees_sat"],
+            "fees_per_tx":    round(fpt, 0),
+            "difficulty":     b["difficulty"],
             "x": round(x, 4),
             "y": round(y, 4),
             "z": round(z, 4),
@@ -663,23 +702,90 @@ def normalize_blocks_to_4d(blocks: list, btc_price: float) -> list:
 
 # ====================== BTC 4D RENDERER ======================
 
+def _render_block_view_4d(
+    power: float,
+    max_iter: int,
+    res: int,
+    w_slice: float,
+    bound: float,
+    cx: float,
+    cy: float,
+    z_start: float,
+) -> plt.Figure:
+    """
+    Like render_raymarched_view but injects block-mapped (cx, cy, z_start) into the
+    ray origins so all five 4D coordinates influence the rendered image.
+
+    cx, cy  — x/y offsets for the viewing window centre (from block x, y mapping)
+    z_start — initial ray Z position bias (from block z mapping)
+    """
+    xs = np.linspace(-bound + cx, bound + cx, res)
+    ys = np.linspace(-bound + cy, bound + cy, res)
+    X, Y = np.meshgrid(xs, ys)
+    mu_map = np.full_like(X, float(max_iter), dtype=float)
+
+    for i in range(res):
+        for j in range(res):
+            pos = np.array([X[i, j], Y[i, j], z_start, w_slice], dtype=float)
+            t = 0.0
+            for _ in range(80):
+                mu = mandelbulb_4d_power(pos, power, max_iter, 4.0)
+                if mu < max_iter:
+                    mu_map[i, j] = mu
+                    break
+                d = distance_estimator(pos, power, steps=12)
+                if d < 0.001:
+                    mu_map[i, j] = 0.0
+                    break
+                t += max(d, 0.001)
+                pos[2] = z_start + t - bound
+            else:
+                mu_map[i, j] = float(max_iter)
+
+    fig, ax = plt.subplots(figsize=(11, 8), facecolor="#0a0a0a")
+    img = ax.imshow(
+        np.clip(mu_map, 0, max_iter * 0.85),
+        cmap="inferno",
+        extent=[xs[0], xs[-1], ys[0], ys[-1]],
+        origin="lower",
+        interpolation="bilinear",
+    )
+    ax.set_xlabel("X", color="white"); ax.set_ylabel("Y", color="white")
+    ax.tick_params(colors="white"); ax.set_facecolor("#0a0a0a"); fig.patch.set_facecolor("#0a0a0a")
+    cbar = plt.colorbar(img, ax=ax, label="Smooth Escape Time μ")
+    cbar.ax.yaxis.set_tick_params(color="white"); cbar.outline.set_edgecolor("white")
+    return fig
+
+
 def render_block_frame(bp: dict, res: int = 120, max_iter: int = 40) -> plt.Figure:
     """
-    Render a single 4D Mandelbulb frame driven by block parameters.
-    bp must contain keys: x, y, z, w, power, height, datetime, tx_count
+    Render a single 4D Mandelbulb frame driven by all five block-mapped coordinates.
+
+    x, y → viewing window centre offsets (scaled to ±0.6 of bound)
+    z     → initial ray Z position bias (scaled to ±0.5)
+    w     → 4th-dimension w-slice
+    power → fractal exponent from BTC price
     """
-    fig = render_raymarched_view(
+    cx      = bp["x"] * 0.6    # pan view centre: block time axis
+    cy      = bp["y"] * 0.6    # pan view centre: fee density axis
+    z_start = bp["z"] * 0.5    # ray depth bias: difficulty axis
+
+    fig = _render_block_view_4d(
         power=bp["power"],
         max_iter=max_iter,
         res=res,
         w_slice=bp["w"],
         bound=1.5,
+        cx=cx,
+        cy=cy,
+        z_start=z_start,
     )
-    ax = fig.axes[0]
-    ax.set_title(
+    fig.axes[0].set_title(
         f"₿ Block #{bp['height']:,}  •  {bp['datetime']} UTC\n"
-        f"tx={bp['tx_count']:,}  |  w={bp['w']:.3f}  |  power n={bp['power']:.2f}",
-        color="white", fontsize=13, pad=20,
+        f"tx={bp['tx_count']:,}  |  fees/tx={int(bp['fees_per_tx'])} sat  |  "
+        f"w={bp['w']:.3f}  |  n={bp['power']:.2f}  |  "
+        f"(cx={cx:.2f}, cy={cy:.2f}, z₀={z_start:.2f})",
+        color="white", fontsize=11, pad=16,
     )
     return fig
 
@@ -719,6 +825,27 @@ def generate_chain_gif(frames_data: list, res: int = 50, max_iter: int = 30) -> 
 
 
 # ====================== STREAMLIT UI ======================
+
+# ── SIDEBAR ─────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### 🌌 4D Mandelbulb")
+    st.markdown("---")
+    st.markdown("**₿ BTC Chain Stats**")
+    _sb_price  = st.session_state.get("btc_price")
+    _sb_blocks = st.session_state.get("btc_frames", [])
+    if _sb_price:
+        st.metric("BTC Price", f"${_sb_price:,.0f}")
+    else:
+        st.metric("BTC Price", "—")
+    st.metric("Blocks loaded", len(_sb_blocks))
+    st.markdown("---")
+    st.markdown("**⚛️ Quantum ECC**")
+    _ecc_map = {1: "Surface-17", 2: "Bacon-Shor-13", 3: "Color-9"}
+    _ecc_lvl = st.session_state.get("_qtf_ecc_level", 1)
+    st.metric("ECC Code", _ecc_map.get(_ecc_lvl, "Surface-17"))
+    st.metric("ECC Level", f"L{_ecc_lvl}")
+    st.markdown("---")
+    st.caption("Switch tabs to explore\nFractal • Quantum • BTC Chain")
 
 st.title("🌌 4D Mandelbulb Explorer")
 st.markdown("**Raymarched with Smooth μ • Real Mesh Export • Quantum Testing Framework • ₿ BTC Chain Graph**")
@@ -802,6 +929,7 @@ with tab2:
             if results:
                 import pandas as pd
                 df = pd.DataFrame(results)
+                st.session_state["_qtf_ecc_level"] = framework.error_correction_level
 
                 st.success(f"✅ {len(results)} cycles completed")
 
@@ -951,8 +1079,8 @@ with tab3:
         )
     else:
         # ── metrics table ───────────────────────────────────────────
-        df = pd.DataFrame(frames)[["height","datetime","tx_count","difficulty","size_kb","w","power"]]
-        df.columns = ["Height","Date (UTC)","Tx Count","Difficulty","Size (KB)","w-slice","Power n"]
+        df = pd.DataFrame(frames)[["height","datetime","tx_count","total_fees_sat","fees_per_tx","difficulty","w","power"]]
+        df.columns = ["Height","Date (UTC)","Tx Count","Total Fees (sat)","Fees/Tx (sat)","Difficulty","w-slice","Power n"]
         df["Difficulty"] = df["Difficulty"].apply(lambda v: f"{v:.3e}")
         st.dataframe(df, use_container_width=True, hide_index=True)
 
