@@ -1,0 +1,26 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "6QsQ_1iMfC3T-fcz8DjnB"
+uri = "file://mandelbulb_4d_v1.png"
+type = "image"
+title = "4D Mandelbulb — View 1 (Elev 25, Azim 45)"
+
+[[outputs]]
+id = "838T8S2i0p1h1Og1htpI2"
+uri = "file://mandelbulb_4d_v2.png"
+type = "image"
+title = "4D Mandelbulb — View 2 (Elev 10, Azim 135)"
+
+[[outputs]]
+id = "MMq7FOyZ-KYNksQTJzNRc"
+uri = "file://mandelbulb_4d_v3.png"
+type = "image"
+title = "4D Mandelbulb — View 3 (Top-down, Elev 60)"
+
+[[outputs]]
+id = "MjFdoZhvwd57RokwVDJM5"
+uri = "file://mandelbulb_4d_2d.png"
+type = "image"
+title = "4D Mandelbulb — 2D Cross-Section Heatmap"
