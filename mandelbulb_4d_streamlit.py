@@ -661,14 +661,19 @@ def normalize_blocks_to_4d(blocks: list, btc_price: float) -> list:
     Map each block's on-chain metrics to 4D coordinates (x, y, z, w) + fractal power n.
 
     Mapping:
-      x  = normalized timestamp            → [-1.5, 1.5]  (time axis)
+      x  = normalized timestamp             → [-1.5, 1.5]  (time axis)
       y  = normalized total_fees / tx_count → [-1.5, 1.5]  (fee density / economic)
       z  = normalized difficulty            → [-1.5, 1.5]  (mining complexity)
-      w  = (height % 3000) / 1000.0 - 1.5  → [-1.5, 1.5]  (self-expanding slice)
+      w  = (height % 2) * 3 - 1.5          → {-1.5, 1.5}  (self-expanding toggle)
       n  = BTC price mapped to [4.0, 12.0]                  (fractal morphology)
+
+    Output is sorted ascending by height so chain animation plays in correct order.
     """
     if not blocks:
         return []
+
+    # Sort ascending by height so the "self-expanding chain" grows forward in time
+    blocks = sorted(blocks, key=lambda b: b["height"])
 
     def fees_per_tx(b):
         return b["total_fees_sat"] / max(1, b["tx_count"])
