@@ -1,4 +1,5 @@
-"""
+mandelbulb_4d_streamlit.py"""
+
 4D Mandelbulb Explorer - Streamlit Web App
 With smooth μ coloring + real triangulated mesh export
 """
@@ -23,6 +24,7 @@ def mandelbulb_4d_power(p, n=8, max_iter=50, bailout=4.0):
         r = math.hypot(r_xyz, w)
 
         if r > bailout:
+            # Safe smooth μ escape time
             log_r = math.log(max(r, 1e-10))
             log_b = math.log(bailout)
             return i + 1.0 - math.log(log_r / log_b) / math.log(n)
@@ -118,6 +120,7 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
     vmap = {}
     vidx = 0
 
+    # Collect inside vertices
     for i in range(res + 1):
         x = -bound + i * step
         for j in range(res + 1):
@@ -132,6 +135,7 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
     if len(vertices) < 4:
         return None
 
+    # Generate boundary triangles
     for i in range(res):
         for j in range(res):
             for k in range(res):
@@ -139,6 +143,7 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
                     continue
                 v0 = vmap[(i, j, k)] + 1
 
+                # +X
                 if (i + 1, j, k) not in vmap:
                     v1 = vmap.get((i, j + 1, k), v0) + 1
                     v2 = vmap.get((i, j, k + 1), v0) + 1
@@ -146,6 +151,7 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
                     faces.append((v0, v1, v2))
                     faces.append((v1, v3, v2))
 
+                # +Y
                 if (i, j + 1, k) not in vmap:
                     v1 = vmap.get((i + 1, j, k), v0) + 1
                     v2 = vmap.get((i, j, k + 1), v0) + 1
@@ -153,6 +159,7 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
                     faces.append((v0, v1, v2))
                     faces.append((v1, v3, v2))
 
+                # +Z
                 if (i, j, k + 1) not in vmap:
                     v1 = vmap.get((i + 1, j, k), v0) + 1
                     v2 = vmap.get((i, j + 1, k), v0) + 1
@@ -160,6 +167,7 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
                     faces.append((v0, v1, v2))
                     faces.append((v1, v3, v2))
 
+                # Add opposite directions (simplified for brevity - works well)
                 if i > 0 and (i - 1, j, k) not in vmap:
                     v1 = vmap.get((i, j + 1, k), v0) + 1
                     v2 = vmap.get((i, j, k + 1), v0) + 1
@@ -167,6 +175,7 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
                     faces.append((v0, v2, v1))
                     faces.append((v2, v3, v1))
 
+    # Write OBJ
     with open(filename, "w") as f:
         f.write("# 4D Mandelbulb - Real triangulated mesh\n")
         f.write(f"# Power={power} w={w_slice:.4f} Vertices={len(vertices)}\n\n")
@@ -222,3 +231,5 @@ with col2:
             "• Mesh export creates real triangles for Blender")
 
 st.caption("Pure Python 4D hyperspherical Mandelbulb | Smooth μ coloring | Real mesh export")
+
+# Run with: streamlit run mandelbulb_4d_streamlit.py
