@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-3.11"]
+modules = ["nodejs-24"]
 
 [[artifacts]]
 id = "artifacts/api-server"
@@ -17,86 +17,6 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
-[[workflows.workflow]]
-name = "Mandelbulb 4D Explorer"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "streamlit run mandelbulb_4d_streamlit.py --server.port 5000"
-waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
-
-[[workflows.workflow]]
-name = "artifacts/mockup-sandbox: Component Preview Server"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "XegfDyZt7HqfW2Bb8Ghoy"
-isCanvasWorkflow = true
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/mockup-sandbox run dev"
-cwd = "./artifacts/mockup-sandbox"
-waitForPort = 8081
-
-[workflows.workflow.tasks.env]
-PORT = "8081"
-BASE_PATH = "/__mockup"
-
-[[workflows.workflow]]
-name = "artifacts/crypto-dashboard: web"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "artifacts/crypto-dashboard"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/crypto-dashboard run dev"
-cwd = "./artifacts/crypto-dashboard"
-waitForPort = 20512
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "20512"
-BASE_PATH = "/"
-
-[[workflows.workflow]]
-name = "artifacts/api-server: API Server"
-author = "agent"
-mode = "parallel"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "3B4_FFSkEVBkAeYMFRJ2e"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run dev"
-cwd = "./artifacts/api-server"
-waitForPort = 8080
-
-[workflows.workflow.tasks.env]
-PORT = "8080"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run dev"
-cwd = "./artifacts/api-server"
-waitForPort = 8080
-
-[workflows.workflow.tasks.env]
-PORT = "8080"
-
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -104,10 +24,3 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
-
-[nix]
-channel = "stable-25_05"
-packages = ["cairo", "ffmpeg-full", "freetype", "ghostscript", "gobject-introspection", "gtk3", "libxcrypt", "pkg-config", "qhull", "tcl", "tk", "xsimd"]
-
-[objectStorage]
-defaultBucketID = "replit-objstore-505b8056-14e7-4847-a1a3-58a92d8e9c20"
