@@ -9,10 +9,10 @@ import { Search, ArrowRight, ArrowRightLeft } from "lucide-react";
 import { motion } from "framer-motion";
 
 const MOCK_TRANSFERS = [
-  { id: 1, hash: "0x123abc...", status: "Success", method: "Transfer", blockNo: 38472910, dateTime: "2024-05-15T14:22:10Z", from: "0x572e...", fromNametag: "My Wallet", to: "0x987d...", toNametag: "Binance Hot", amount: "1000", valueUsd: "999.80", token: "USDT" },
-  { id: 2, hash: "0x456def...", status: "Success", method: "Transfer", blockNo: 38472850, dateTime: "2024-05-15T12:10:05Z", from: "0xaaa1...", fromNametag: "PancakeSwap", to: "0x572e...", toNametag: "My Wallet", amount: "50000000", valueUsd: "196.00", token: "VINU" },
-  { id: 3, hash: "0x789ghi...", status: "Success", method: "Transfer", blockNo: 38461020, dateTime: "2024-05-14T09:12:45Z", from: "0x572e...", fromNametag: "My Wallet", to: "0xbbb2...", toNametag: "KuCoin", amount: "150.5", valueUsd: "14.22", token: "DOGE" },
-  { id: 4, hash: "0x012jkl...", status: "Success", method: "Transfer", blockNo: 38450000, dateTime: "2024-05-13T18:45:00Z", from: "0xccc3...", fromNametag: "Airdrop Contract", to: "0x572e...", toNametag: "My Wallet", amount: "10000", valueUsd: "3.34", token: "BTT" },
+  { id: 1, hash: "0x123abc...", status: "Success", method: "Transfer", blockNo: 38472910, dateTime: "2024-05-15T14:22:10Z", from: "0xAB91...", fromNametag: "My Wallet", to: "0x987d...", toNametag: "Binance Hot", amount: "1000", valueUsd: "999.80", token: "USDT" },
+  { id: 2, hash: "0x456def...", status: "Success", method: "Transfer", blockNo: 38472850, dateTime: "2024-05-15T12:10:05Z", from: "0xaaa1...", fromNametag: "PancakeSwap", to: "0xAB91...", toNametag: "My Wallet", amount: "50000000", valueUsd: "196.00", token: "VINU" },
+  { id: 3, hash: "0x789ghi...", status: "Success", method: "Transfer", blockNo: 38461020, dateTime: "2024-05-14T09:12:45Z", from: "0xAB91...", fromNametag: "My Wallet", to: "0xbbb2...", toNametag: "KuCoin", amount: "150.5", valueUsd: "14.22", token: "DOGE" },
+  { id: 4, hash: "0x012jkl...", status: "Success", method: "Transfer", blockNo: 38450000, dateTime: "2024-05-13T18:45:00Z", from: "0xccc3...", fromNametag: "Airdrop Contract", to: "0xAB91...", toNametag: "My Wallet", amount: "10000", valueUsd: "3.34", token: "BTT" },
 ];
 
 export default function TokenTransfersPage() {
@@ -76,7 +76,7 @@ export default function TokenTransfersPage() {
                 </thead>
                 <tbody className="divide-y divide-border/30">
                   {filteredTransfers.length > 0 ? filteredTransfers.map((transfer, i) => {
-                    const isOut = transfer.fromNametag === "My Wallet" || transfer.from.startsWith("0x572e");
+                    const isOut = transfer.fromNametag === "My Wallet" || transfer.from.startsWith("0xAB91");
                     
                     return (
                       <motion.tr 

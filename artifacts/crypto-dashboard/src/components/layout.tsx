@@ -72,12 +72,12 @@ export function Layout({ children }: LayoutProps) {
         <div className="p-4 border-t border-border/50">
           <div className="glass-panel p-4 rounded-xl flex items-center">
             <img 
-              src={`${import.meta.env.BASE_URL}images/avatar.png`} 
+              src={`${import.meta.env.BASE_URL}images/avatar.jpeg`} 
               alt="User" 
-              className="w-10 h-10 rounded-full border border-primary/20"
+              className="w-10 h-10 rounded-full border border-primary/20 object-cover"
             />
             <div className="ml-3 overflow-hidden">
-              <p className="text-sm font-semibold truncate text-foreground">0x572e...a104</p>
+              <p className="text-sm font-semibold truncate text-foreground">0xAB91...A3f1</p>
               <p className="text-xs text-muted-foreground truncate">Main Wallet</p>
             </div>
           </div>
