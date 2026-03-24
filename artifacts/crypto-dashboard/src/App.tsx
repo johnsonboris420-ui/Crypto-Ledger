@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import PortfolioPage from "@/pages/portfolio";
 import TransactionsPage from "@/pages/transactions";
 import TokenTransfersPage from "@/pages/token-transfers";
+import MandelbulbPage from "@/pages/mandelbulb";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/" component={PortfolioPage} />
       <Route path="/transactions" component={TransactionsPage} />
       <Route path="/transfers" component={TokenTransfersPage} />
+      <Route path="/mandelbulb" component={MandelbulbPage} />
       <Route component={NotFound} />
     </Switch>
   );
