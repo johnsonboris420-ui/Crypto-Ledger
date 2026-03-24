@@ -9,7 +9,8 @@ import {
   Search,
   LogOut,
   Hexagon,
-  Sparkles
+  Sparkles,
+  Pickaxe
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ export function Layout({ children }: LayoutProps) {
     { name: "Transactions", path: "/transactions", icon: ArrowRightLeft },
     { name: "Token Transfers", path: "/transfers", icon: ListTree },
     { name: "4D Mandelbulb", path: "/mandelbulb", icon: Sparkles },
+    { name: "Mining", path: "/mining", icon: Pickaxe },
   ];
 
   return (

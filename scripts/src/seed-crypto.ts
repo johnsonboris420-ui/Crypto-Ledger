@@ -1,4 +1,4 @@
-import { db, transactionsTable, tokenTransfersTable, holdingsTable } from "@workspace/db";
+import { db, transactionsTable, tokenTransfersTable, holdingsTable, minedBlocksTable, miningWalletTable } from "@workspace/db";
 
 async function seed() {
   console.log("Seeding database...");
@@ -7,6 +7,8 @@ async function seed() {
   await db.delete(transactionsTable);
   await db.delete(tokenTransfersTable);
   await db.delete(holdingsTable);
+  await db.delete(minedBlocksTable);
+  await db.delete(miningWalletTable);
 
   // Seed holdings from wallet screenshot
   await db.insert(holdingsTable).values([
@@ -380,6 +382,14 @@ async function seed() {
       token: "VINU",
     },
   ]);
+
+  // Seed initial empty mining wallet
+  await db.insert(miningWalletTable).values({
+    totalBtc: "0",
+    totalGas: "0",
+    blocksMined: 0,
+    lastMinedAt: null,
+  });
 
   console.log("Seeding complete!");
 }

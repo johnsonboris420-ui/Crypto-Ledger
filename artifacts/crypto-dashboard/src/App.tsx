@@ -7,6 +7,7 @@ import PortfolioPage from "@/pages/portfolio";
 import TransactionsPage from "@/pages/transactions";
 import TokenTransfersPage from "@/pages/token-transfers";
 import MandelbulbPage from "@/pages/mandelbulb";
+import MiningPage from "@/pages/mining";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/transactions" component={TransactionsPage} />
       <Route path="/transfers" component={TokenTransfersPage} />
       <Route path="/mandelbulb" component={MandelbulbPage} />
+      <Route path="/mining" component={MiningPage} />
       <Route component={NotFound} />
     </Switch>
   );

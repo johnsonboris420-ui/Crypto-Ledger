@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, decimal, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, decimal, timestamp, boolean, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -54,3 +54,30 @@ export type TokenTransfer = typeof tokenTransfersTable.$inferSelect;
 export const insertHoldingSchema = createInsertSchema(holdingsTable).omit({ id: true });
 export type InsertHolding = z.infer<typeof insertHoldingSchema>;
 export type Holding = typeof holdingsTable.$inferSelect;
+
+export const minedBlocksTable = pgTable("mined_blocks", {
+  id: serial("id").primaryKey(),
+  blockNum: integer("block_num").notNull(),
+  hash: text("hash").notNull(),
+  btcReward: decimal("btc_reward", { precision: 18, scale: 8 }).notNull(),
+  gasFee: decimal("gas_fee", { precision: 18, scale: 8 }).notNull(),
+  powerSnapshot: real("power_snapshot").notNull(),
+  wSliceSnapshot: real("w_slice_snapshot").notNull(),
+  minedAt: timestamp("mined_at").defaultNow().notNull(),
+});
+
+export const miningWalletTable = pgTable("mining_wallet", {
+  id: serial("id").primaryKey(),
+  totalBtc: decimal("total_btc", { precision: 18, scale: 8 }).notNull().default("0"),
+  totalGas: decimal("total_gas", { precision: 18, scale: 8 }).notNull().default("0"),
+  blocksMined: integer("blocks_mined").notNull().default(0),
+  lastMinedAt: timestamp("last_mined_at"),
+});
+
+export const insertMinedBlockSchema = createInsertSchema(minedBlocksTable).omit({ id: true });
+export type InsertMinedBlock = z.infer<typeof insertMinedBlockSchema>;
+export type MinedBlock = typeof minedBlocksTable.$inferSelect;
+
+export const insertMiningWalletSchema = createInsertSchema(miningWalletTable).omit({ id: true });
+export type InsertMiningWallet = z.infer<typeof insertMiningWalletSchema>;
+export type MiningWallet = typeof miningWalletTable.$inferSelect;
