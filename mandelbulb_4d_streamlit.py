@@ -113,16 +113,16 @@ def render_raymarched_view(power=8, max_iter=50, res=350, w_slice=0.0, bound=1.5
 # ====================== REAL MESH EXPORT ======================
 def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="mandelbulb_4d_mesh.obj"):
     """
-    Exports a real triangulated mesh of the 4D Mandelbulb slice at given w_slice.
-    Uses a reliable voxel-face method → solid, connected triangles for Blender.
+    Exports a real triangulated mesh of the 4D Mandelbulb slice (w = w_slice).
+    Uses voxel-face method → solid, connected triangles suitable for Blender.
     """
     step = bound * 2.0 / res
     vertices = []
     faces = []
-    vmap = {}          # (i, j, k) -> vertex index (0-based)
+    vmap = {}   # (i, j, k) → vertex index (starting at 0)
     vidx = 0
 
-    # Step 1: Collect all inside vertices
+    # Step 1: Collect inside vertices
     for i in range(res + 1):
         x = -bound + i * step
         for j in range(res + 1):
@@ -137,7 +137,7 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
     if len(vertices) < 4:
         return None
 
-    # Step 2: Generate triangles for boundary faces (6 directions)
+    # Step 2: Generate triangles for boundary faces
     for i in range(res):
         for j in range(res):
             for k in range(res):
@@ -146,66 +146,37 @@ def export_surface_to_obj(power=8, res=50, w_slice=0.0, bound=1.5, filename="man
 
                 v0 = vmap[(i, j, k)] + 1   # OBJ indices start at 1
 
-                # +X direction
-                if (i + 1, j, k) not in vmap:
-                    v1 = vmap.get((i, j + 1, k), v0) + 1
-                    v2 = vmap.get((i, j, k + 1), v0) + 1
-                    v3 = vmap.get((i, j + 1, k + 1), v0) + 1
-                    faces.append((v0, v1, v2))
-                    faces.append((v1, v3, v2))
+                # 6 possible directions
+                directions = [
+                    ((1, 0, 0),  (0, 1, 0),  (0, 0, 1)),   # +x
+                    ((-1, 0, 0), (0, 1, 0),  (0, 0, 1)),   # -x
+                    ((0, 1, 0),  (1, 0, 0),  (0, 0, 1)),   # +y
+                    ((0, -1, 0), (1, 0, 0),  (0, 0, 1)),   # -y
+                    ((0, 0, 1),  (1, 0, 0),  (0, 1, 0)),   # +z
+                    ((0, 0, -1), (1, 0, 0),  (0, 1, 0))    # -z
+                ]
 
-                # -X direction
-                if i > 0 and (i - 1, j, k) not in vmap:
-                    v1 = vmap.get((i, j + 1, k), v0) + 1
-                    v2 = vmap.get((i, j, k + 1), v0) + 1
-                    v3 = vmap.get((i, j + 1, k + 1), v0) + 1
-                    faces.append((v0, v2, v1))
-                    faces.append((v2, v3, v1))
+                for dx, dy, dz in directions:
+                    ni, nj, nk = i + dx[0], j + dy[0], k + dz[0]
+                    if (ni, nj, nk) not in vmap:   # boundary face
+                        v1 = vmap.get((i + dy[0], j + dx[0], k + dz[0]), v0) + 1
+                        v2 = vmap.get((i + dz[0], j + dy[0], k + dx[0]), v0) + 1
+                        v3 = vmap.get((i + dy[0] + dz[0], j + dx[0] + dz[0], k + dx[0] + dy[0]), v0) + 1
 
-                # +Y direction
-                if (i, j + 1, k) not in vmap:
-                    v1 = vmap.get((i + 1, j, k), v0) + 1
-                    v2 = vmap.get((i, j, k + 1), v0) + 1
-                    v3 = vmap.get((i + 1, j, k + 1), v0) + 1
-                    faces.append((v0, v1, v2))
-                    faces.append((v1, v3, v2))
-
-                # -Y direction
-                if j > 0 and (i, j - 1, k) not in vmap:
-                    v1 = vmap.get((i + 1, j, k), v0) + 1
-                    v2 = vmap.get((i, j, k + 1), v0) + 1
-                    v3 = vmap.get((i + 1, j, k + 1), v0) + 1
-                    faces.append((v0, v2, v1))
-                    faces.append((v2, v3, v1))
-
-                # +Z direction
-                if (i, j, k + 1) not in vmap:
-                    v1 = vmap.get((i + 1, j, k), v0) + 1
-                    v2 = vmap.get((i, j + 1, k), v0) + 1
-                    v3 = vmap.get((i + 1, j + 1, k), v0) + 1
-                    faces.append((v0, v1, v2))
-                    faces.append((v1, v3, v2))
-
-                # -Z direction
-                if k > 0 and (i, j, k - 1) not in vmap:
-                    v1 = vmap.get((i + 1, j, k), v0) + 1
-                    v2 = vmap.get((i, j + 1, k), v0) + 1
-                    v3 = vmap.get((i + 1, j + 1, k), v0) + 1
-                    faces.append((v0, v2, v1))
-                    faces.append((v2, v3, v1))
+                        faces.append((v0, v1, v2))
+                        faces.append((v1, v3, v2))
 
     # Write OBJ file
     with open(filename, "w") as f:
         f.write("# 4D Mandelbulb - Real triangulated mesh export\n")
-        f.write(f"# Power={power} | w={w_slice:.4f} | Vertices={len(vertices)} | Triangles={len(faces)}\n\n")
+        f.write(f"# Power = {power} | w = {w_slice:.4f} | Vertices = {len(vertices)} | Triangles = {len(faces)}\n\n")
 
         for v in vertices:
             f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
 
         f.write("\n")
         for face in faces:
-            if len(face) == 3:
-                f.write(f"f {face[0]} {face[1]} {face[2]}\n")
+            f.write(f"f {face[0]} {face[1]} {face[2]}\n")
 
     return filename
 

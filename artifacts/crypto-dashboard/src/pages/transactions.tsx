@@ -7,12 +7,16 @@ import { format } from "date-fns";
 import { ExternalLink, Filter, Download } from "lucide-react";
 import { motion } from "framer-motion";
 
+const ETHERSCAN_BASE = "https://etherscan.io";
+const BSCSCAN_BASE = "https://bscscan.com";
+
 const MOCK_TRANSACTIONS = [
-  { id: 1, hash: "0x8fa9b3847291a84f3c837402a", chainName: "BSC", status: "Success", action: "Transfer", token: "USDT", from: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", fromInfo: "My Wallet", to: "0x123abc...", toInfo: "Binance Hot Wallet", createdAt: "2024-05-15T14:22:10Z" },
-  { id: 2, hash: "0x1a2b3c4d5e6f7g8h9i0j1k2l3", chainName: "BSC", status: "Success", action: "Swap", token: "VINU -> USDT", from: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", fromInfo: "My Wallet", to: "0x987def...", toInfo: "PancakeSwap Router", createdAt: "2024-05-14T09:12:45Z" },
-  { id: 3, hash: "0x9z8y7x6w5v4u3t2s1r0q", chainName: "BSC", status: "Failed", action: "Multicall", token: "-", from: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", fromInfo: "My Wallet", to: "0x567ghi...", toInfo: "Smart Contract", createdAt: "2024-05-13T18:45:00Z" },
-  { id: 4, hash: "0x4k5l6m7n8o9p0q1r2s3t", chainName: "BSC", status: "Success", action: "Transfer", token: "DOGE", from: "0x111aaa...", fromInfo: "KuCoin", to: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", toInfo: "My Wallet", createdAt: "2024-05-12T11:30:22Z" },
-  { id: 5, hash: "0x8a9b0c1d2e3f4g5h6i7j", chainName: "BSC", status: "Success", action: "Approve", token: "CAKE", from: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", fromInfo: "My Wallet", to: "0x987def...", toInfo: "PancakeSwap Router", createdAt: "2024-05-10T16:05:11Z" },
+  { id: 0, hash: "0x74b7ec12eacae343912fd4e000281c982aa21869f07ef042921785a3f7cfc7fa", chainName: "ETH", status: "Success", action: "Receive", token: "ETH", from: "0x2b3FeD49f0285bBd5BC6AB86b94355305DbB", fromInfo: "Revolut 4 (ERC-4337)", to: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", toInfo: "My Wallet", amount: "+0.00050449 ETH", fee: "0.000100828724 ETH ($0.22)", block: "24720155", createdAt: "2026-03-23T12:15:23Z" },
+  { id: 1, hash: "0x8fa9b3847291a84f3c837402a", chainName: "BSC", status: "Success", action: "Transfer", token: "USDT", from: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", fromInfo: "My Wallet", to: "0x123abc...", toInfo: "Binance Hot Wallet", amount: "-1000 USDT", fee: "", block: "38472910", createdAt: "2024-05-15T14:22:10Z" },
+  { id: 2, hash: "0x1a2b3c4d5e6f7g8h9i0j1k2l3", chainName: "BSC", status: "Success", action: "Swap", token: "VINU → USDT", from: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", fromInfo: "My Wallet", to: "0x987def...", toInfo: "PancakeSwap Router", amount: "", fee: "", block: "38472850", createdAt: "2024-05-14T09:12:45Z" },
+  { id: 3, hash: "0x9z8y7x6w5v4u3t2s1r0q", chainName: "BSC", status: "Failed", action: "Multicall", token: "-", from: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", fromInfo: "My Wallet", to: "0x567ghi...", toInfo: "Smart Contract", amount: "", fee: "", block: "38461020", createdAt: "2024-05-13T18:45:00Z" },
+  { id: 4, hash: "0x4k5l6m7n8o9p0q1r2s3t", chainName: "BSC", status: "Success", action: "Transfer", token: "DOGE", from: "0x111aaa...", fromInfo: "KuCoin", to: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", toInfo: "My Wallet", amount: "+150.5 DOGE", fee: "", block: "38450000", createdAt: "2024-05-12T11:30:22Z" },
+  { id: 5, hash: "0x8a9b0c1d2e3f4g5h6i7j", chainName: "BSC", status: "Success", action: "Approve", token: "CAKE", from: "0xAB91784C3c94b3c5d51C8bC6AB86b94CB5FDA3f1", fromInfo: "My Wallet", to: "0x987def...", toInfo: "PancakeSwap Router", amount: "", fee: "", block: "38110050", createdAt: "2024-05-10T16:05:11Z" },
 ];
 
 export default function TransactionsPage() {
@@ -77,15 +81,21 @@ export default function TransactionsPage() {
                 <thead>
                   <tr className="border-b border-border/50 bg-black/10">
                     <th className="py-4 px-6 text-xs font-semibold text-muted-foreground tracking-wider uppercase">Hash</th>
+                    <th className="py-4 px-6 text-xs font-semibold text-muted-foreground tracking-wider uppercase">Chain</th>
                     <th className="py-4 px-6 text-xs font-semibold text-muted-foreground tracking-wider uppercase">Method</th>
                     <th className="py-4 px-6 text-xs font-semibold text-muted-foreground tracking-wider uppercase">Date</th>
                     <th className="py-4 px-6 text-xs font-semibold text-muted-foreground tracking-wider uppercase">From</th>
-                    <th className="py-4 px-6 text-xs font-semibold text-muted-foreground tracking-wider uppercase">To</th>
+                    <th className="py-4 px-6 text-xs font-semibold text-muted-foreground tracking-wider uppercase">Amount</th>
                     <th className="py-4 px-6 text-xs font-semibold text-muted-foreground tracking-wider uppercase">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/30">
-                  {transactions.map((txn, i) => (
+                  {transactions.map((txn, i) => {
+                    const explorerBase = (txn as any).chainName === "ETH" ? ETHERSCAN_BASE : BSCSCAN_BASE;
+                    const explorerUrl = `${explorerBase}/tx/${txn.hash}`;
+                    const isRealHash = txn.hash.length === 66;
+                    const isReceive = (txn as any).action === "Receive" || txn.toInfo === "My Wallet";
+                    return (
                     <motion.tr 
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -96,10 +106,22 @@ export default function TransactionsPage() {
                       <td className="py-4 px-6">
                         <div className="flex items-center space-x-2">
                           <span className="text-primary font-mono text-sm">{shortenAddress(txn.hash)}</span>
-                          <button className="text-muted-foreground hover:text-foreground transition-colors p-1">
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </button>
+                          {isRealHash ? (
+                            <a href={explorerUrl} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors p-1" title="View on Explorer">
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          ) : (
+                            <button className="text-muted-foreground hover:text-foreground transition-colors p-1 opacity-40" disabled>
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
+                        {(txn as any).block && <p className="text-[10px] text-muted-foreground mt-0.5">Block #{(txn as any).block}</p>}
+                      </td>
+                      <td className="py-4 px-6">
+                        <Badge variant={(txn as any).chainName === "ETH" ? "info" : "warning"} className="text-[10px]">
+                          {(txn as any).chainName || "BSC"}
+                        </Badge>
                       </td>
                       <td className="py-4 px-6">
                         {getActionBadge(txn.action)}
@@ -109,22 +131,29 @@ export default function TransactionsPage() {
                         <p className="text-xs text-muted-foreground">{format(new Date(txn.createdAt), "HH:mm:ss")}</p>
                       </td>
                       <td className="py-4 px-6">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-foreground">{shortenAddress(txn.from)}</span>
-                          {txn.fromInfo && <Badge variant="outline" className="text-[10px] py-0">{txn.fromInfo}</Badge>}
+                        <div className="space-y-0.5">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-foreground">{shortenAddress(txn.from)}</span>
+                          </div>
+                          {txn.fromInfo && <p className="text-[10px] text-muted-foreground">{txn.fromInfo}</p>}
                         </div>
                       </td>
                       <td className="py-4 px-6">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-foreground">{shortenAddress(txn.to)}</span>
-                          {txn.toInfo && <Badge variant="outline" className="text-[10px] py-0">{txn.toInfo}</Badge>}
-                        </div>
+                        {(txn as any).amount ? (
+                          <span className={`font-mono text-sm font-semibold ${isReceive ? "text-green-400" : "text-red-400"}`}>
+                            {(txn as any).amount}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">—</span>
+                        )}
+                        {(txn as any).fee && <p className="text-[10px] text-muted-foreground mt-0.5">Fee: {(txn as any).fee}</p>}
                       </td>
                       <td className="py-4 px-6">
                         {getStatusBadge(txn.status)}
                       </td>
                     </motion.tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
